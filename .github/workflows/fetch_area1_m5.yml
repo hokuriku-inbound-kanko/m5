@@ -25,54 +25,61 @@ jobs:
           OUT_FILE="${OUT_DIR}/area1_m5.csv"
           HEADER="year,month,day,hour,minute,second,count"
 
-          # フォルダが存在しない場合は作成
           mkdir -p "$OUT_DIR"
 
-          # データ取得
-          RAW="$(curl -fsSL "$URL")"
+          # 取得（CR, 空白行除去）
+          RAW="$(curl -fsSL "$URL" | tr -d '\r' | sed '/^[[:space:]]*$/d')"
 
-          # 既存データ読み込み（ヘッダー除去）
+          # 既存データの読み込み（ヘッダー除去）→ 正規化して配列へ
+          declare -A SEEN
+          ALL=()
+
           if [[ -f "$OUT_FILE" ]]; then
-            mapfile -t EXISTING < <(tail -n +2 "$OUT_FILE")
-          else
-            EXISTING=()
+            # 既存はすでに正規化済みの想定だが、念のため再正規化
+            while IFS= read -r line; do
+              [[ "$line" == "$HEADER" || -z "$line" ]] && continue
+              norm=$(awk -F',' 'NF==7 {
+                y=$1+0;m=$2+0;d=$3+0;H=$4+0;M=$5+0;S=$6+0;c=$7+0;
+                printf("%04d,%02d,%02d,%02d,%02d,%02d,%d\n",y,m,d,H,M,S,c)
+              }' <<< "$line")
+              if [[ -n "$norm" && -z "${SEEN["$norm"]+x}" ]]; then
+                SEEN["$norm"]=1
+                ALL+=("$norm")
+              fi
+            done < "$OUT_FILE"
           fi
 
-          # 既存をセット化
-          declare -A SEEN
-          for line in "${EXISTING[@]}"; do
-            [[ -n "$line" ]] && SEEN["$line"]=1
-          done
-
-          # 新規行の取り込み（空行除去）
-          mapfile -t NEWLINES < <(printf '%s\n' "$RAW" | sed '/^[[:space:]]*$/d')
-
-          # 既存＋新規を結合しユニーク化
-          ALL=("${EXISTING[@]}")
-          for line in "${NEWLINES[@]}"; do
-            if [[ "$line" =~ ^[0-9]{4},[0-9]{2},[0-9]{2},[0-9]{2},[0-9]{2},[0-9]{2},[0-9]+$ ]]; then
-              if [[ -z "${SEEN["$line"]+x}" ]]; then
-                SEEN["$line"]=1
-                ALL+=("$line")
-              fi
+          # 新規データを正規化してマージ
+          while IFS= read -r line; do
+            # 余計な空白を除去
+            line="${line//[[:space:]]/}"
+            [[ -z "$line" ]] && continue
+            # 1桁/2桁OK、7フィールドのみ採用 → 正規化
+            norm=$(awk -F',' 'NF==7 {
+              y=$1+0;m=$2+0;d=$3+0;H=$4+0;M=$5+0;S=$6+0;c=$7+0;
+              # 範囲が明らかにおかしい行は捨てる（簡易バリデーション）
+              if (m>=1 && m<=12 && d>=1 && d<=31 && H>=0 && H<=23 && M>=0 && M<=59 && S>=0 && S<=59) {
+                printf("%04d,%02d,%02d,%02d,%02d,%02d,%d\n",y,m,d,H,M,S,c)
+              }
+            }' <<< "$line")
+            if [[ -n "$norm" && -z "${SEEN["$norm"]+x}" ]]; then
+              SEEN["$norm"]=1
+              ALL+=("$norm")
             fi
-          done
+          done <<< "$RAW"
 
-          # 時系列ソート
+          # ソートしてヘッダー付きで出力
           printf '%s\n' "${ALL[@]}" \
-            | awk -F',' 'NF==7 {printf("%04d,%02d,%02d,%02d,%02d,%02d,%d\n",$1,$2,$3,$4,$5,$6,$7)}' \
             | sort -t',' -k1,1n -k2,2n -k3,3n -k4,4n -k5,5n -k6,6n -k7,7n \
             | awk -v h="$HEADER" 'BEGIN{print h} {print}' > "$OUT_FILE"
 
-          # 変更がある/未追跡のときだけコミット
-          # untracked（初回作成）も検出する
-          if [[ -n "$(git status --porcelain -- kaiteki/area1_m5.csv)" ]]; then
+          # 変更/未追跡のときだけコミット（初回作成も検出）
+          if [[ -n "$(git status --porcelain -- "$OUT_FILE")" ]]; then
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add "kaiteki/area1_m5.csv"
-            git commit -m "Update ./kaiteki/area1_m5.csv (auto; 15min JST 08:00–18:00) [skip ci]"
+            git add "$OUT_FILE"
+            git commit -m "Normalize & update ./kaiteki/area1_m5.csv (auto; 15min JST) [skip ci]"
             git push
           else
             echo "No changes."
           fi
-
