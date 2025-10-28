@@ -15,7 +15,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Update area1_m5.csv
+      - name: Update ./kaiteki/area1_m5.csv
         shell: bash
         run: |
           set -euo pipefail
@@ -64,13 +64,15 @@ jobs:
             | sort -t',' -k1,1n -k2,2n -k3,3n -k4,4n -k5,5n -k6,6n -k7,7n \
             | awk -v h="$HEADER" 'BEGIN{print h} {print}' > "$OUT_FILE"
 
-          # 変更があるときだけコミット
-          if ! git diff --quiet -- "$OUT_FILE"; then
+          # 変更がある/未追跡のときだけコミット
+          # untracked（初回作成）も検出する
+          if [[ -n "$(git status --porcelain -- kaiteki/area1_m5.csv)" ]]; then
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add "$OUT_FILE"
-            git commit -m "Update kaiteki/area1_m5.csv (auto; 15min JST 08:00–18:00) [skip ci]"
+            git add "kaiteki/area1_m5.csv"
+            git commit -m "Update ./kaiteki/area1_m5.csv (auto; 15min JST 08:00–18:00) [skip ci]"
             git push
           else
             echo "No changes."
           fi
+
