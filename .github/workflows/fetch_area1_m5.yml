@@ -1,0 +1,74 @@
+name: Fetch area1_m5 CSV (15min 08:00–18:00 JST)
+
+on:
+  schedule:
+    - cron: "0,15,30,45 23,0-9 * * *"  # JST 08:00–18:00 の15分刻み
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fetch-and-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Update area1_m5.csv
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          URL="https://ifdl.jp/akita/WiScount/log/4827e2e3b74c.txt"
+          OUT="area1_m5.csv"
+          HEADER="year,month,day,hour,minute,second,count"
+
+          # 取得（失敗時は終了）
+          RAW="$(curl -fsSL "$URL")"
+
+          # 既存読み込み
+          if [[ -f "$OUT" ]]; then
+            mapfile -t EXISTING < <(tail -n +2 "$OUT")   # ヘッダー除去
+          else
+            EXISTING=()
+          fi
+
+          # 既存をセット化
+          declare -A SEEN
+          for line in "${EXISTING[@]}"; do
+            [[ -n "$line" ]] && SEEN["$line"]=1
+          done
+
+          # 新規行の取り込み（空行除去）
+          mapfile -t NEWLINES < <(printf '%s\n' "$RAW" | sed '/^[[:space:]]*$/d')
+
+          # 既存＋新規を結合しユニーク化
+          ALL=("${EXISTING[@]}")
+          for line in "${NEWLINES[@]}"; do
+            # 期待フォーマット: 7要素のCSV
+            if [[ "$line" =~ ^[0-9]{4},[0-9]{2},[0-9]{2},[0-9]{2},[0-9]{2},[0-9]{2},[0-9]+$ ]]; then
+              if [[ -z "${SEEN["$line"]+x}" ]]; then
+                SEEN["$line"]=1
+                ALL+=("$line")
+              fi
+            fi
+          done
+
+          # 時系列で安定ソート（year..count の数値キー）
+          # 0埋めされているので文字列ソートでも概ねOKだが、厳密に数値キーでソート
+          printf '%s\n' "${ALL[@]}" \
+            | awk -F',' 'NF==7 {printf("%04d,%02d,%02d,%02d,%02d,%02d,%d\n",$1,$2,$3,$4,$5,$6,$7)}' \
+            | sort -t',' -k1,1n -k2,2n -k3,3n -k4,4n -k5,5n -k6,6n -k7,7n \
+            | awk -v h="$HEADER" 'BEGIN{print h} {print}' > "$OUT"
+
+          # 変更があるときだけコミット
+          if ! git diff --quiet -- "$OUT"; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add "$OUT"
+            git commit -m "Update area1_m5.csv (auto; 15min JST 08:00–18:00) [skip ci]"
+            git push
+          else
+            echo "No changes."
+          fi
