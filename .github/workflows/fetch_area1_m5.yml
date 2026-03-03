@@ -1,4 +1,4 @@
-name: Fetch area1_m5 CSV (15min 08:00–18:00 JST)
+name: Fetch area1-6_m5 CSV (15min 08:00–18:00 JST)
 
 on:
   schedule:
@@ -11,18 +11,35 @@ permissions:
 jobs:
   fetch-and-commit:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        area:
+          - id: area1
+            url: https://ifdl.jp/akita/WiScount/log/4827e2e3b9ac.txt
+          - id: area2
+            url: https://ifdl.jp/akita/WiScount/log/c04e30114f5c.txt
+          - id: area3
+            url: https://ifdl.jp/akita/WiScount/log/c04e3012ef88.txt
+          - id: area4
+            url: https://ifdl.jp/akita/WiScount/log/4827e2e3c5a4.txt
+          - id: area5
+            url: https://ifdl.jp/akita/WiScount/log/4827e2e3b99c.txt
+          - id: area6
+            url: https://ifdl.jp/akita/WiScount/log/4827e2e3c1fc.txt
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Update ./kaiteki/area1_m5.csv
+      - name: Update ./kaiteki/${{ matrix.area.id }}_m5.csv
         shell: bash
         run: |
           set -euo pipefail
 
-          URL="https://ifdl.jp/akita/WiScount/log/4827e2e3b74c.txt"
+          URL="${{ matrix.area.url }}"
           OUT_DIR="kaiteki"
-          OUT_FILE="${OUT_DIR}/area1_m5.csv"
+          OUT_FILE="${OUT_DIR}/${{ matrix.area.id }}_m5.csv"
           HEADER="year,month,day,hour,minute,second,count"
 
           mkdir -p "$OUT_DIR"
@@ -35,7 +52,6 @@ jobs:
           ALL=()
 
           if [[ -f "$OUT_FILE" ]]; then
-            # 既存はすでに正規化済みの想定だが、念のため再正規化
             while IFS= read -r line; do
               [[ "$line" == "$HEADER" || -z "$line" ]] && continue
               norm=$(awk -F',' 'NF==7 {
@@ -51,13 +67,10 @@ jobs:
 
           # 新規データを正規化してマージ
           while IFS= read -r line; do
-            # 余計な空白を除去
             line="${line//[[:space:]]/}"
             [[ -z "$line" ]] && continue
-            # 1桁/2桁OK、7フィールドのみ採用 → 正規化
             norm=$(awk -F',' 'NF==7 {
               y=$1+0;m=$2+0;d=$3+0;H=$4+0;M=$5+0;S=$6+0;c=$7+0;
-              # 範囲が明らかにおかしい行は捨てる（簡易バリデーション）
               if (m>=1 && m<=12 && d>=1 && d<=31 && H>=0 && H<=23 && M>=0 && M<=59 && S>=0 && S<=59) {
                 printf("%04d,%02d,%02d,%02d,%02d,%02d,%d\n",y,m,d,H,M,S,c)
               }
@@ -73,12 +86,17 @@ jobs:
             | sort -t',' -k1,1n -k2,2n -k3,3n -k4,4n -k5,5n -k6,6n -k7,7n \
             | awk -v h="$HEADER" 'BEGIN{print h} {print}' > "$OUT_FILE"
 
-          # 変更/未追跡のときだけコミット（初回作成も検出）
-          if [[ -n "$(git status --porcelain -- "$OUT_FILE")" ]]; then
+      - name: Commit & push if changed
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # kaiteki配下の変更がある時だけコミット
+          if [[ -n "$(git status --porcelain -- kaiteki/*.csv 2>/dev/null || true)" ]]; then
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add "$OUT_FILE"
-            git commit -m "Normalize & update ./kaiteki/area1_m5.csv (auto; 15min JST) [skip ci]"
+            git add kaiteki/*.csv
+            git commit -m "Normalize & update ./kaiteki/area1-6_m5.csv (auto; 15min JST) [skip ci]"
             git push
           else
             echo "No changes."
