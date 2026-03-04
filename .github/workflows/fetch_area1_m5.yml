@@ -1,102 +1,117 @@
-name: Fetch area1-6_m5 CSV (15min 08:00–18:00 JST)
+name: Fetch area1-6_m5 CSV (15min 08:00–20:30 JST)
 
 on:
   schedule:
-    - cron: "0,15,30,45 23,0-9 * * *"  # JST 08:00–18:00 の15分刻み
+    - cron: "0,15,30,45 23 * * *"     # JST 08:00–08:45
+    - cron: "0,15,30,45 0-10 * * *"   # JST 09:00–19:45
+    - cron: "0,15,30 11 * * *"        # JST 20:00–20:30
   workflow_dispatch:
 
 permissions:
   contents: write
 
+# 同じworkflowの同時実行を防ぐ（push競合対策）
+concurrency:
+  group: kaiteki-m5-update
+  cancel-in-progress: false
+
 jobs:
   fetch-and-commit:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        area:
-          - id: area1
-            url: https://ifdl.jp/akita/WiScount/log/4827e2e3b9ac.txt
-          - id: area2
-            url: https://ifdl.jp/akita/WiScount/log/c04e30114f5c.txt
-          - id: area3
-            url: https://ifdl.jp/akita/WiScount/log/c04e3012ef88.txt
-          - id: area4
-            url: https://ifdl.jp/akita/WiScount/log/4827e2e3c5a4.txt
-          - id: area5
-            url: https://ifdl.jp/akita/WiScount/log/4827e2e3b99c.txt
-          - id: area6
-            url: https://ifdl.jp/akita/WiScount/log/4827e2e3c1fc.txt
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # pull/rebaseできるように
 
-      - name: Update ./kaiteki/${{ matrix.area.id }}_m5.csv
+      - name: Update ./kaiteki/area1-6_m5.csv
         shell: bash
         run: |
           set -euo pipefail
 
-          URL="${{ matrix.area.url }}"
           OUT_DIR="kaiteki"
-          OUT_FILE="${OUT_DIR}/${{ matrix.area.id }}_m5.csv"
           HEADER="year,month,day,hour,minute,second,count"
-
           mkdir -p "$OUT_DIR"
 
-          # 取得（CR, 空白行除去）
-          RAW="$(curl -fsSL "$URL" | tr -d '\r' | sed '/^[[:space:]]*$/d')"
+          # area -> url
+          declare -A URLS=(
+            [area1]="https://ifdl.jp/akita/WiScount/log/4827e2e3b9ac.txt"
+            [area2]="https://ifdl.jp/akita/WiScount/log/c04e30114f5c.txt"
+            [area3]="https://ifdl.jp/akita/WiScount/log/c04e3012ef88.txt"
+            [area4]="https://ifdl.jp/akita/WiScount/log/4827e2e3c5a4.txt"
+            [area5]="https://ifdl.jp/akita/WiScount/log/4827e2e3b99c.txt"
+            [area6]="https://ifdl.jp/akita/WiScount/log/4827e2e3c1fc.txt"
+          )
 
-          # 既存データの読み込み（ヘッダー除去）→ 正規化して配列へ
-          declare -A SEEN
-          ALL=()
+          normalize_merge_write () {
+            local url="$1"
+            local out_file="$2"
 
-          if [[ -f "$OUT_FILE" ]]; then
+            # 取得（CR, 空白行除去）
+            local raw
+            raw="$(curl -fsSL "$url" | tr -d '\r' | sed '/^[[:space:]]*$/d')"
+
+            declare -A seen
+            local -a all=()
+
+            # 既存データを読み込み（ヘッダー除去）→ 正規化して保持
+            if [[ -f "$out_file" ]]; then
+              while IFS= read -r line; do
+                [[ "$line" == "$HEADER" || -z "$line" ]] && continue
+                norm=$(awk -F',' 'NF==7 {
+                  y=$1+0;m=$2+0;d=$3+0;H=$4+0;M=$5+0;S=$6+0;c=$7+0;
+                  printf("%04d,%02d,%02d,%02d,%02d,%02d,%d\n",y,m,d,H,M,S,c)
+                }' <<< "$line")
+                if [[ -n "$norm" && -z "${seen["$norm"]+x}" ]]; then
+                  seen["$norm"]=1
+                  all+=("$norm")
+                fi
+              done < "$out_file"
+            fi
+
+            # 新規データを正規化してマージ
             while IFS= read -r line; do
-              [[ "$line" == "$HEADER" || -z "$line" ]] && continue
+              line="${line//[[:space:]]/}"
+              [[ -z "$line" ]] && continue
               norm=$(awk -F',' 'NF==7 {
                 y=$1+0;m=$2+0;d=$3+0;H=$4+0;M=$5+0;S=$6+0;c=$7+0;
-                printf("%04d,%02d,%02d,%02d,%02d,%02d,%d\n",y,m,d,H,M,S,c)
+                if (m>=1 && m<=12 && d>=1 && d<=31 && H>=0 && H<=23 && M>=0 && M<=59 && S>=0 && S<=59) {
+                  printf("%04d,%02d,%02d,%02d,%02d,%02d,%d\n",y,m,d,H,M,S,c)
+                }
               }' <<< "$line")
-              if [[ -n "$norm" && -z "${SEEN["$norm"]+x}" ]]; then
-                SEEN["$norm"]=1
-                ALL+=("$norm")
+              if [[ -n "$norm" && -z "${seen["$norm"]+x}" ]]; then
+                seen["$norm"]=1
+                all+=("$norm")
               fi
-            done < "$OUT_FILE"
-          fi
+            done <<< "$raw"
 
-          # 新規データを正規化してマージ
-          while IFS= read -r line; do
-            line="${line//[[:space:]]/}"
-            [[ -z "$line" ]] && continue
-            norm=$(awk -F',' 'NF==7 {
-              y=$1+0;m=$2+0;d=$3+0;H=$4+0;M=$5+0;S=$6+0;c=$7+0;
-              if (m>=1 && m<=12 && d>=1 && d<=31 && H>=0 && H<=23 && M>=0 && M<=59 && S>=0 && S<=59) {
-                printf("%04d,%02d,%02d,%02d,%02d,%02d,%d\n",y,m,d,H,M,S,c)
-              }
-            }' <<< "$line")
-            if [[ -n "$norm" && -z "${SEEN["$norm"]+x}" ]]; then
-              SEEN["$norm"]=1
-              ALL+=("$norm")
-            fi
-          done <<< "$RAW"
+            # ソートしてヘッダー付きで出力
+            printf '%s\n' "${all[@]}" \
+              | sort -t',' -k1,1n -k2,2n -k3,3n -k4,4n -k5,5n -k6,6n -k7,7n \
+              | awk -v h="$HEADER" 'BEGIN{print h} {print}' > "$out_file"
+          }
 
-          # ソートしてヘッダー付きで出力
-          printf '%s\n' "${ALL[@]}" \
-            | sort -t',' -k1,1n -k2,2n -k3,3n -k4,4n -k5,5n -k6,6n -k7,7n \
-            | awk -v h="$HEADER" 'BEGIN{print h} {print}' > "$OUT_FILE"
+          for area in area1 area2 area3 area4 area5 area6; do
+            url="${URLS[$area]}"
+            out_file="${OUT_DIR}/${area}_m5.csv"
+            echo "Updating $out_file from $url"
+            normalize_merge_write "$url" "$out_file"
+          done
 
       - name: Commit & push if changed
         shell: bash
         run: |
           set -euo pipefail
 
-          # kaiteki配下の変更がある時だけコミット
           if [[ -n "$(git status --porcelain -- kaiteki/*.csv 2>/dev/null || true)" ]]; then
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
+
             git add kaiteki/*.csv
             git commit -m "Normalize & update ./kaiteki/area1-6_m5.csv (auto; 15min JST) [skip ci]"
+
+            # 念のため最新を取り込んでからpush（同時実行や手動更新に強くなる）
+            git pull --rebase origin main
             git push
           else
             echo "No changes."
