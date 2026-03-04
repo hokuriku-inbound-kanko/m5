@@ -13,7 +13,7 @@ permissions:
 # 同じworkflowの同時実行を防ぐ（push競合対策）
 concurrency:
   group: kaiteki-m5-update
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   fetch-and-commit:
