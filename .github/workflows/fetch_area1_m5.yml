@@ -2,9 +2,9 @@ name: Fetch area1-6_m5 CSV (15min 08:00–20:30 JST)
 
 on:
   schedule:
-    - cron: "0,15,30,45 23 * * *"     # JST 08:00–08:45
-    - cron: "0,15,30,45 0-10 * * *"   # JST 09:00–19:45
-    - cron: "0,15,30 11 * * *"        # JST 20:00–20:30
+    - cron: "0,30 23 * * *"    # JST 08:00, 08:30
+    - cron: "0,30 0-10 * * *"  # JST 09:00〜19:30
+    - cron: "0,30 11 * * *"    # JST 20:00, 20:30
   workflow_dispatch:
 
 permissions:
