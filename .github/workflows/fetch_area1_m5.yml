@@ -1,4 +1,4 @@
-name: Fetch area1-6_m5 CSV (15min 08:00–20:30 JST)
+name: Fetch area1-6_m5 CSV (30min 08:00–20:30 JST)
 
 on:
   schedule:
@@ -10,7 +10,6 @@ on:
 permissions:
   contents: write
 
-# 同じworkflowの同時実行を防ぐ（push競合対策）
 concurrency:
   group: kaiteki-m5-update
   cancel-in-progress: true
@@ -22,9 +21,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # pull/rebaseできるように
+          fetch-depth: 0
 
-      - name: Update ./kaiteki/area1-6_m5.csv
+      - name: Update ./kaiteki/area1-6_m5.csv (UTC->JST +9)
         shell: bash
         run: |
           set -euo pipefail
@@ -32,6 +31,17 @@ jobs:
           OUT_DIR="kaiteki"
           HEADER="year,month,day,hour,minute,second,count"
           mkdir -p "$OUT_DIR"
+
+          # 既存CSVを「一度だけ」UTC→JSTへ移行するためのフラグ
+          # （次回以降、既存分を二重に+9しない）
+          SHIFT_FLAG="${OUT_DIR}/.jst_shift_applied"
+          SHIFT_EXISTING=0
+          if [[ ! -f "$SHIFT_FLAG" ]]; then
+            SHIFT_EXISTING=1
+            echo "JST shift migration: ON (first run)."
+          else
+            echo "JST shift migration: OFF (existing already JST)."
+          fi
 
           # area -> url
           declare -A URLS=(
@@ -42,6 +52,41 @@ jobs:
             [area5]="https://ifdl.jp/akita/WiScount/log/4827e2e3b99c.txt"
             [area6]="https://ifdl.jp/akita/WiScount/log/4827e2e3c1fc.txt"
           )
+
+          # gawk の mktime/strftime をUTC基準で扱う（入力をUTCとして解釈）
+          export TZ=UTC
+
+          # 1行（CSV: y,m,d,H,M,S,c）を JST(+9) に変換して "YYYY,MM,DD,HH,MM,SS,count" を出す
+          # 入力はカンマ区切り7列。空白は事前除去推奨。
+          to_jst_norm() {
+            gawk -F',' '
+              NF==7 {
+                y=$1+0;m=$2+0;d=$3+0;H=$4+0;M=$5+0;S=$6+0;c=$7+0;
+
+                # 簡易バリデーション
+                if (!(m>=1 && m<=12 && d>=1 && d<=31 && H>=0 && H<=23 && M>=0 && M<=59 && S>=0 && S<=59)) next;
+
+                # mktime はTZ=UTCで解釈 → +9時間 → UTCとして表示（=JST表記になる）
+                t = mktime(sprintf("%04d %02d %02d %02d %02d %02d", y,m,d,H,M,S));
+                if (t<=0) next;
+
+                t += 9*3600;
+                printf("%s,%d\n", strftime("%Y,%m,%d,%H,%M,%S", t), c);
+              }
+            '
+          }
+
+          # 既存行を「JSTのまま」正規化して出す（+9しない）
+          # （すでにJST化済みの既存データ用）
+          keep_norm() {
+            gawk -F',' '
+              NF==7 {
+                y=$1+0;m=$2+0;d=$3+0;H=$4+0;M=$5+0;S=$6+0;c=$7+0;
+                if (!(m>=1 && m<=12 && d>=1 && d<=31 && H>=0 && H<=23 && M>=0 && M<=59 && S>=0 && S<=59)) next;
+                printf("%04d,%02d,%02d,%02d,%02d,%02d,%d\n", y,m,d,H,M,S,c);
+              }
+            '
+          }
 
           normalize_merge_write () {
             local url="$1"
@@ -54,14 +99,21 @@ jobs:
             declare -A seen
             local -a all=()
 
-            # 既存データを読み込み（ヘッダー除去）→ 正規化して保持
+            # 既存データ取り込み
             if [[ -f "$out_file" ]]; then
               while IFS= read -r line; do
                 [[ "$line" == "$HEADER" || -z "$line" ]] && continue
-                norm=$(awk -F',' 'NF==7 {
-                  y=$1+0;m=$2+0;d=$3+0;H=$4+0;M=$5+0;S=$6+0;c=$7+0;
-                  printf("%04d,%02d,%02d,%02d,%02d,%02d,%d\n",y,m,d,H,M,S,c)
-                }' <<< "$line")
+                # 空白除去
+                line="${line//[[:space:]]/}"
+
+                if [[ "$SHIFT_EXISTING" -eq 1 ]]; then
+                  # 初回のみ：既存もUTCとみなして +9 変換（移行）
+                  norm="$(printf '%s\n' "$line" | to_jst_norm || true)"
+                else
+                  # 2回目以降：既存はすでにJSTなのでそのまま正規化
+                  norm="$(printf '%s\n' "$line" | keep_norm || true)"
+                fi
+
                 if [[ -n "$norm" && -z "${seen["$norm"]+x}" ]]; then
                   seen["$norm"]=1
                   all+=("$norm")
@@ -69,48 +121,49 @@ jobs:
               done < "$out_file"
             fi
 
-            # 新規データを正規化してマージ
+            # 新規データ（RAW）は常にUTC想定 → +9変換してマージ
             while IFS= read -r line; do
               line="${line//[[:space:]]/}"
               [[ -z "$line" ]] && continue
-              norm=$(awk -F',' 'NF==7 {
-                y=$1+0;m=$2+0;d=$3+0;H=$4+0;M=$5+0;S=$6+0;c=$7+0;
-                if (m>=1 && m<=12 && d>=1 && d<=31 && H>=0 && H<=23 && M>=0 && M<=59 && S>=0 && S<=59) {
-                  printf("%04d,%02d,%02d,%02d,%02d,%02d,%d\n",y,m,d,H,M,S,c)
-                }
-              }' <<< "$line")
+
+              norm="$(printf '%s\n' "$line" | to_jst_norm || true)"
+
               if [[ -n "$norm" && -z "${seen["$norm"]+x}" ]]; then
                 seen["$norm"]=1
                 all+=("$norm")
               fi
             done <<< "$raw"
 
-            # ソートしてヘッダー付きで出力
+            # ソートしてヘッダー付きで出力（時系列）
             printf '%s\n' "${all[@]}" \
               | sort -t',' -k1,1n -k2,2n -k3,3n -k4,4n -k5,5n -k6,6n -k7,7n \
-              | awk -v h="$HEADER" 'BEGIN{print h} {print}' > "$out_file"
+              | gawk -v h="$HEADER" 'BEGIN{print h} {print}' > "$out_file"
           }
 
           for area in area1 area2 area3 area4 area5 area6; do
             url="${URLS[$area]}"
             out_file="${OUT_DIR}/${area}_m5.csv"
-            echo "Updating $out_file from $url"
+            echo "Updating $out_file from $url (UTC->JST +9)"
             normalize_merge_write "$url" "$out_file"
           done
+
+          # 初回移行が済んだらフラグを立てる（以後、既存を二重変換しない）
+          if [[ "$SHIFT_EXISTING" -eq 1 ]]; then
+            touch "$SHIFT_FLAG"
+          fi
 
       - name: Commit & push if changed
         shell: bash
         run: |
           set -euo pipefail
 
-          if [[ -n "$(git status --porcelain -- kaiteki/*.csv 2>/dev/null || true)" ]]; then
+          if [[ -n "$(git status --porcelain -- kaiteki/*.csv kaiteki/.jst_shift_applied 2>/dev/null || true)" ]]; then
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
 
-            git add kaiteki/*.csv
-            git commit -m "Normalize & update ./kaiteki/area1-6_m5.csv (auto; 15min JST) [skip ci]"
+            git add kaiteki/*.csv kaiteki/.jst_shift_applied
+            git commit -m "Update kaiteki area1-6 (UTC->JST +9) [skip ci]"
 
-            # 念のため最新を取り込んでからpush（同時実行や手動更新に強くなる）
             git pull --rebase origin main
             git push
           else
