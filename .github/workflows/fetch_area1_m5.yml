@@ -48,7 +48,7 @@ jobs:
             [area1]="https://ifdl.jp/akita/WiScount/log/4827e2e3b9ac.txt"
             [area2]="https://ifdl.jp/akita/WiScount/log/c04e30114f5c.txt"
             [area3]="https://ifdl.jp/akita/WiScount/log/c04e3012ef88.txt"
-            [area4]="https://ifdl.jp/akita/WiScount/log/4827e2e3c5a4.txt"
+            [area4]="https://ifdl.jp/akita/WiScount/log/c04e3012f04c.txt"
             [area5]="https://ifdl.jp/akita/WiScount/log/4827e2e3b99c.txt"
             [area6]="https://ifdl.jp/akita/WiScount/log/4827e2e3c1fc.txt"
           )
