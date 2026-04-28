@@ -56,11 +56,11 @@
             
             <!-- 凡例 -->
             <div class="flex flex-wrap gap-2 items-center text-xs md:text-sm mb-4">
-              <span class="w-4 h-4 rounded bg-blue-500 shadow-sm"></span> <span>〜レベル1</span>
-              <span class="w-4 h-4 rounded bg-green-500 shadow-sm ml-2"></span> <span>レベル2</span>
-              <span class="w-4 h-4 rounded bg-yellow-500 shadow-sm ml-2"></span> <span>レベル3</span>
-              <span class="w-4 h-4 rounded bg-orange-500 shadow-sm ml-2"></span> <span>レベル4</span>
-              <span class="w-4 h-4 rounded bg-red-500 shadow-sm ml-2"></span> <span>レベル5〜</span>
+              <span class="w-4 h-4 rounded bg-blue-200 shadow-sm border border-blue-300"></span> <span>〜レベル1</span>
+              <span class="w-4 h-4 rounded bg-green-200 shadow-sm border border-green-300 ml-2"></span> <span>レベル2</span>
+              <span class="w-4 h-4 rounded bg-yellow-200 shadow-sm border border-yellow-300 ml-2"></span> <span>レベル3</span>
+              <span class="w-4 h-4 rounded bg-orange-200 shadow-sm border border-orange-300 ml-2"></span> <span>レベル4</span>
+              <span class="w-4 h-4 rounded bg-red-200 shadow-sm border border-red-300 ml-2"></span> <span>レベル5〜</span>
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -250,15 +250,16 @@
 
           if(isNaN(y) || isNaN(count)) continue;
 
-          // JST変換: UTCとして解釈し、9時間(32,400,000ms)足す
-          const utcTimeMs = Date.UTC(y, m - 1, d, h, min, s);
-          const jstTimeMs = utcTimeMs + 9 * 60 * 60 * 1000;
-          const jstDate = new Date(jstTimeMs);
+          // 曜日の判定用にDateオブジェクトを作成（加算はしない）
+          const dateObj = new Date(y, m - 1, d, h, min, s);
+
+          const strM = String(m).padStart(2, '0');
+          const strD = String(d).padStart(2, '0');
 
           parsedData.push({
-            dateStr: `${jstDate.getUTCFullYear()}-${String(jstDate.getUTCMonth()+1).padStart(2,'0')}-${String(jstDate.getUTCDate()).padStart(2,'0')}`,
-            hour: jstDate.getUTCHours(),
-            dayOfWeek: jstDate.getUTCDay(),
+            dateStr: `${y}-${strM}-${strD}`,
+            hour: h,
+            dayOfWeek: dateObj.getDay(),
             count: count
           });
         }
@@ -378,17 +379,16 @@
 
     // 色の判定ロジック
     function getCellColor(val) {
-      if (val < t1) return '#3b82f6'; // Level 1: 青
-      if (val < t2) return '#22c55e'; // Level 2: 緑
-      if (val < t3) return '#eab308'; // Level 3: 黄
-      if (val < t4) return '#f97316'; // Level 4: 橙
-      return '#ef4444';               // Level 5: 赤
+      if (val < t1) return '#bfdbfe'; // Level 1: 青 (blue-200)
+      if (val < t2) return '#bbf7d0'; // Level 2: 緑 (green-200)
+      if (val < t3) return '#fef08a'; // Level 3: 黄 (yellow-200)
+      if (val < t4) return '#fed7aa'; // Level 4: 橙 (orange-200)
+      return '#fecaca';               // Level 5: 赤 (red-200)
     }
 
     function getTextColor(val) {
-      // 背景が黄色の場合は見やすくするために文字を黒にする
-      if (val >= t2 && val < t3) return '#1f2937';
-      return '#ffffff';
+      // 淡い背景色に合わせて、文字は一律で濃いグレーにする
+      return '#1f2937';
     }
 
     function renderHeatmap() {
