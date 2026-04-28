@@ -1,1 +1,512 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>人流データ可視化ダッシュボード</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-gray-100 text-gray-800 font-sans min-h-screen">
+  <div class="max-w-6xl mx-auto p-4 md:p-6">
+    
+    <!-- ヘッダーと施設選択 -->
+    <header class="mb-6 flex flex-col md:flex-row justify-between items-center gap-4 bg-white p-4 rounded-lg shadow">
+      <h1 class="text-xl md:text-2xl font-bold text-gray-800 flex items-center gap-2">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+        </svg>
+        人流データ可視化
+      </h1>
+      <select id="location-select" class="border border-gray-300 p-2 rounded-md w-full md:w-auto bg-gray-50 focus:ring-2 focus:ring-blue-500 outline-none transition-shadow">
+        <!-- JSで動的に追加されます -->
+      </select>
+    </header>
 
+    <!-- ローディング表示 -->
+    <div id="loading" class="text-center py-20 hidden">
+      <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+      <p class="text-lg text-gray-600 font-medium">データを読み込んでいます...</p>
+    </div>
+
+    <!-- エラー表示 -->
+    <div id="error-message" class="hidden bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6 rounded shadow" role="alert">
+      <p class="font-bold">エラー</p>
+      <p>データの取得または解析に失敗しました。</p>
+    </div>
+
+    <!-- メインコンテンツ -->
+    <div id="main-content" class="bg-white rounded-lg shadow hidden overflow-hidden">
+      
+      <!-- タブナビゲーション -->
+      <div class="flex border-b overflow-x-auto hide-scrollbar">
+        <button id="btn-tab-heatmap" class="tab-btn flex-1 min-w-[120px] py-3 px-4 text-center border-b-2 border-blue-500 text-blue-600 font-medium transition-colors" onclick="switchTab('tab-heatmap')">ヒートマップ</button>
+        <button id="btn-tab-ranking" class="tab-btn flex-1 min-w-[120px] py-3 px-4 text-center border-b-2 border-transparent text-gray-500 hover:text-gray-700 transition-colors" onclick="switchTab('tab-ranking')">ランキング</button>
+        <button id="btn-tab-chart" class="tab-btn flex-1 min-w-[120px] py-3 px-4 text-center border-b-2 border-transparent text-gray-500 hover:text-gray-700 transition-colors" onclick="switchTab('tab-chart')">時系列グラフ</button>
+      </div>
+
+      <div class="p-4 md:p-6">
+        
+        <!-- ==========================================
+             タブ1: ヒートマップ
+        =========================================== -->
+        <div id="tab-heatmap" class="tab-content">
+          <div class="mb-6 bg-gray-50 p-4 rounded-lg border border-gray-100">
+            <h3 class="font-bold text-gray-700 mb-3 text-sm md:text-base">基準値設定（スライダー）</h3>
+            
+            <!-- 凡例 -->
+            <div class="flex flex-wrap gap-2 items-center text-xs md:text-sm mb-4">
+              <span class="w-4 h-4 rounded bg-blue-500 shadow-sm"></span> <span>〜レベル1</span>
+              <span class="w-4 h-4 rounded bg-green-500 shadow-sm ml-2"></span> <span>レベル2</span>
+              <span class="w-4 h-4 rounded bg-yellow-500 shadow-sm ml-2"></span> <span>レベル3</span>
+              <span class="w-4 h-4 rounded bg-orange-500 shadow-sm ml-2"></span> <span>レベル4</span>
+              <span class="w-4 h-4 rounded bg-red-500 shadow-sm ml-2"></span> <span>レベル5〜</span>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div class="flex flex-col">
+                <label class="text-sm font-medium mb-1 text-gray-600 flex justify-between">
+                  <span>レベル2 (緑) 下限</span> <span id="val-t1" class="font-bold text-green-600"></span>
+                </label>
+                <input type="range" id="slider-t1" class="w-full accent-green-500">
+              </div>
+              <div class="flex flex-col">
+                <label class="text-sm font-medium mb-1 text-gray-600 flex justify-between">
+                  <span>レベル3 (黄) 下限</span> <span id="val-t2" class="font-bold text-yellow-600"></span>
+                </label>
+                <input type="range" id="slider-t2" class="w-full accent-yellow-500">
+              </div>
+              <div class="flex flex-col">
+                <label class="text-sm font-medium mb-1 text-gray-600 flex justify-between">
+                  <span>レベル4 (橙) 下限</span> <span id="val-t3" class="font-bold text-orange-500"></span>
+                </label>
+                <input type="range" id="slider-t3" class="w-full accent-orange-500">
+              </div>
+              <div class="flex flex-col">
+                <label class="text-sm font-medium mb-1 text-gray-600 flex justify-between">
+                  <span>レベル5 (赤) 下限</span> <span id="val-t4" class="font-bold text-red-500"></span>
+                </label>
+                <input type="range" id="slider-t4" class="w-full accent-red-500">
+              </div>
+            </div>
+          </div>
+
+          <div class="overflow-x-auto shadow-inner rounded border">
+            <table class="min-w-max w-full border-collapse text-sm">
+              <thead>
+                <tr id="heatmap-thead" class="bg-gray-100">
+                  <th class="p-2 border sticky left-0 bg-gray-100 z-10 w-12 shadow-[1px_0_0_#e5e7eb]">曜日</th>
+                  <!-- 0~23時のヘッダーはJSで生成 -->
+                </tr>
+              </thead>
+              <tbody id="heatmap-tbody">
+                <!-- データはJSで生成 -->
+              </tbody>
+            </table>
+          </div>
+          <p class="text-xs text-gray-500 mt-2 text-right">※各セルは該当曜日・時間帯の平均値です</p>
+        </div>
+
+        <!-- ==========================================
+             タブ2: ランキング
+        =========================================== -->
+        <div id="tab-ranking" class="tab-content hidden">
+          <h3 class="font-bold text-gray-700 mb-4 text-lg">混雑時間帯ランキング (Top 20)</h3>
+          <div class="overflow-x-auto rounded-lg border">
+            <table class="min-w-full bg-white text-sm">
+              <thead class="bg-gray-100 text-gray-600">
+                <tr>
+                  <th class="py-3 px-4 border-b text-center font-semibold">順位</th>
+                  <th class="py-3 px-4 border-b text-center font-semibold">曜日</th>
+                  <th class="py-3 px-4 border-b text-center font-semibold">時間帯</th>
+                  <th class="py-3 px-4 border-b text-right font-semibold">平均人流カウント</th>
+                </tr>
+              </thead>
+              <tbody id="ranking-tbody">
+                <!-- データはJSで生成 -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ==========================================
+             タブ3: 時系列グラフ
+        =========================================== -->
+        <div id="tab-chart" class="tab-content hidden">
+          <h3 class="font-bold text-gray-700 mb-4 text-lg">日別 平均人流推移</h3>
+          <div class="relative h-80 md:h-96 w-full border rounded-lg bg-gray-50 p-2">
+            <canvas id="timeseries-chart"></canvas>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // --- データ定義 ---
+    const locations = [
+      { name: "金沢駅 東口チケット案内所", url: "https://raw.githubusercontent.com/hokuriku-inbound-kanko/m5/main/kaiteki/area5_m5.csv" },
+      { name: "兼六園 桂坂口料金所", url: "https://raw.githubusercontent.com/hokuriku-inbound-kanko/m5/main/kaiteki/area2_m5.csv" },
+      { name: "21世紀美術館", url: "https://raw.githubusercontent.com/hokuriku-inbound-kanko/m5/main/kaiteki/area4_m5.csv" },
+      { name: "野村家 武家屋敷", url: "https://raw.githubusercontent.com/hokuriku-inbound-kanko/m5/main/kaiteki/area6_m5.csv" },
+      { name: "ひがし茶屋街", url: "https://raw.githubusercontent.com/hokuriku-inbound-kanko/m5/main/kaiteki/area3_m5.csv" },
+      { name: "近江町市場", url: "https://raw.githubusercontent.com/hokuriku-inbound-kanko/m5/main/kaiteki/area1_m5.csv" }
+    ];
+
+    const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
+    const dayOrder = [1, 2, 3, 4, 5, 6, 0]; // 月曜日始まりでの表示順
+
+    // --- グローバル状態 ---
+    let parsedData = [];
+    let heatmapMatrix = []; 
+    let dailyChartData = {};
+    let chartInstance = null;
+    
+    // スライダーの閾値
+    let t1 = 10, t2 = 20, t3 = 30, t4 = 40;
+
+    // --- 初期化処理 ---
+    window.onload = () => {
+      initSelectBox();
+      initHeatmapHeaders();
+      setupSliderListeners();
+      
+      // 初回データ読み込み
+      loadData(locations[0].url);
+    };
+
+    // セレクトボックスの初期化
+    function initSelectBox() {
+      const select = document.getElementById('location-select');
+      locations.forEach((loc, index) => {
+        const option = document.createElement('option');
+        option.value = loc.url;
+        option.textContent = loc.name;
+        select.appendChild(option);
+      });
+
+      select.addEventListener('change', (e) => {
+        loadData(e.target.value);
+      });
+    }
+
+    // タブ切り替えロジック
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+      document.getElementById(tabId).classList.remove('hidden');
+
+      document.querySelectorAll('.tab-btn').forEach(el => {
+        el.classList.remove('border-blue-500', 'text-blue-600');
+        el.classList.add('border-transparent', 'text-gray-500');
+      });
+      document.getElementById(`btn-${tabId}`).classList.remove('border-transparent', 'text-gray-500');
+      document.getElementById(`btn-${tabId}`).classList.add('border-blue-500', 'text-blue-600');
+    }
+
+    // --- データ取得とパース ---
+    async function loadData(url) {
+      document.getElementById('loading').classList.remove('hidden');
+      document.getElementById('main-content').classList.add('hidden');
+      document.getElementById('error-message').classList.add('hidden');
+
+      try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error('Network response was not ok');
+        const csvText = await response.text();
+        
+        parseCSV(csvText);
+        processData();
+        initSliders();
+        renderAll();
+
+        document.getElementById('loading').classList.add('hidden');
+        document.getElementById('main-content').classList.remove('hidden');
+      } catch (error) {
+        console.error('Data fetch error:', error);
+        document.getElementById('loading').classList.add('hidden');
+        document.getElementById('error-message').classList.remove('hidden');
+      }
+    }
+
+    function parseCSV(csvText) {
+      parsedData = [];
+      const lines = csvText.trim().split('\n');
+      
+      // ヘッダー行をスキップするためのチェック
+      const startIdx = isNaN(parseInt(lines[0].split(',')[0], 10)) ? 1 : 0;
+
+      for (let i = startIdx; i < lines.length; i++) {
+        if (!lines[i].trim()) continue;
+        const parts = lines[i].split(',');
+        if (parts.length >= 7) {
+          const y = parseInt(parts[0], 10);
+          const m = parseInt(parts[1], 10);
+          const d = parseInt(parts[2], 10);
+          const h = parseInt(parts[3], 10);
+          const min = parseInt(parts[4], 10);
+          const s = parseInt(parts[5], 10);
+          const count = parseInt(parts[6], 10);
+
+          if(isNaN(y) || isNaN(count)) continue;
+
+          // JST変換: UTCとして解釈し、9時間(32,400,000ms)足す
+          const utcTimeMs = Date.UTC(y, m - 1, d, h, min, s);
+          const jstTimeMs = utcTimeMs + 9 * 60 * 60 * 1000;
+          const jstDate = new Date(jstTimeMs);
+
+          parsedData.push({
+            dateStr: `${jstDate.getUTCFullYear()}-${String(jstDate.getUTCMonth()+1).padStart(2,'0')}-${String(jstDate.getUTCDate()).padStart(2,'0')}`,
+            hour: jstDate.getUTCHours(),
+            dayOfWeek: jstDate.getUTCDay(),
+            count: count
+          });
+        }
+      }
+    }
+
+    // データの集計
+    function processData() {
+      // 1. ヒートマップ用集計 (曜日 x 時間帯 の平均)
+      const sumMatrix = Array(7).fill(0).map(() => Array(24).fill(0));
+      const countMatrix = Array(7).fill(0).map(() => Array(24).fill(0));
+      heatmapMatrix = Array(7).fill(0).map(() => Array(24).fill(null));
+
+      // 2. 時系列グラフ用集計 (日別の平均)
+      dailyChartData = {};
+
+      parsedData.forEach(row => {
+        // ヒートマップ用
+        sumMatrix[row.dayOfWeek][row.hour] += row.count;
+        countMatrix[row.dayOfWeek][row.hour] += 1;
+
+        // 時系列用
+        if (!dailyChartData[row.dateStr]) {
+          dailyChartData[row.dateStr] = { sum: 0, count: 0 };
+        }
+        dailyChartData[row.dateStr].sum += row.count;
+        dailyChartData[row.dateStr].count += 1;
+      });
+
+      // ヒートマップマトリックスの平均算出
+      for(let d = 0; d < 7; d++){
+        for(let h = 0; h < 24; h++){
+          if(countMatrix[d][h] > 0) {
+            heatmapMatrix[d][h] = sumMatrix[d][h] / countMatrix[d][h];
+          }
+        }
+      }
+    }
+
+    // --- スライダー関連 ---
+    function initSliders() {
+      // データ内の最大値を求めてスライダーの上限を設定
+      let maxVal = 0;
+      for(let d = 0; d < 7; d++) {
+        for(let h = 0; h < 24; h++) {
+          if(heatmapMatrix[d][h] > maxVal) maxVal = heatmapMatrix[d][h];
+        }
+      }
+      
+      // 最大値が小さすぎるとスライダーが機能しないため、最低でも5を確保
+      const sliderMax = Math.max(Math.ceil(maxVal), 5); 
+      
+      t1 = Math.round(sliderMax * 0.2);
+      t2 = Math.round(sliderMax * 0.4);
+      t3 = Math.round(sliderMax * 0.6);
+      t4 = Math.round(sliderMax * 0.8);
+
+      ['t1', 't2', 't3', 't4'].forEach(id => {
+        const slider = document.getElementById(`slider-${id}`);
+        slider.max = sliderMax;
+        slider.value = window[id];
+        document.getElementById(`val-${id}`).textContent = window[id];
+      });
+    }
+
+    function setupSliderListeners() {
+      ['t1', 't2', 't3', 't4'].forEach(id => {
+        document.getElementById(`slider-${id}`).addEventListener('input', enforceSliderLimits);
+      });
+    }
+
+    // スライダーの値が逆転しないように補正
+    function enforceSliderLimits(e) {
+      let v1 = parseInt(document.getElementById('slider-t1').value, 10);
+      let v2 = parseInt(document.getElementById('slider-t2').value, 10);
+      let v3 = parseInt(document.getElementById('slider-t3').value, 10);
+      let v4 = parseInt(document.getElementById('slider-t4').value, 10);
+
+      // 簡単な逆転防止（左から右へ押し出す）
+      if(v1 >= v2) v2 = v1 + 1;
+      if(v2 >= v3) v3 = v2 + 1;
+      if(v3 >= v4) v4 = v3 + 1;
+
+      // 値をUIに戻す
+      document.getElementById('slider-t1').value = v1;
+      document.getElementById('slider-t2').value = v2;
+      document.getElementById('slider-t3').value = v3;
+      document.getElementById('slider-t4').value = v4;
+
+      t1 = v1; t2 = v2; t3 = v3; t4 = v4;
+
+      document.getElementById('val-t1').textContent = t1;
+      document.getElementById('val-t2').textContent = t2;
+      document.getElementById('val-t3').textContent = t3;
+      document.getElementById('val-t4').textContent = t4;
+
+      renderHeatmap();
+    }
+
+    // --- 描画処理 ---
+    function renderAll() {
+      renderHeatmap();
+      renderRanking();
+      renderChart();
+    }
+
+    // ヒートマップのヘッダー部（0〜23時）を生成
+    function initHeatmapHeaders() {
+      const thead = document.getElementById('heatmap-thead');
+      for(let h = 0; h < 24; h++) {
+        const th = document.createElement('th');
+        th.className = 'px-1 py-2 border font-normal text-gray-600 min-w-[40px] text-center';
+        th.textContent = h;
+        thead.appendChild(th);
+      }
+    }
+
+    // 色の判定ロジック
+    function getCellColor(val) {
+      if (val < t1) return '#3b82f6'; // Level 1: 青
+      if (val < t2) return '#22c55e'; // Level 2: 緑
+      if (val < t3) return '#eab308'; // Level 3: 黄
+      if (val < t4) return '#f97316'; // Level 4: 橙
+      return '#ef4444';               // Level 5: 赤
+    }
+
+    function getTextColor(val) {
+      // 背景が黄色の場合は見やすくするために文字を黒にする
+      if (val >= t2 && val < t3) return '#1f2937';
+      return '#ffffff';
+    }
+
+    function renderHeatmap() {
+      const tbody = document.getElementById('heatmap-tbody');
+      tbody.innerHTML = '';
+
+      dayOrder.forEach(d => {
+        const tr = document.createElement('tr');
+        
+        const tdLabel = document.createElement('td');
+        tdLabel.className = 'p-2 border font-bold text-center bg-gray-50 sticky left-0 shadow-[1px_0_0_#e5e7eb] z-10';
+        tdLabel.textContent = dayNames[d];
+        tr.appendChild(tdLabel);
+
+        for(let h = 0; h < 24; h++) {
+          const td = document.createElement('td');
+          td.className = 'border text-center font-medium transition-colors duration-200';
+          const val = heatmapMatrix[d][h];
+          
+          if (val === null) {
+            td.textContent = '-';
+            td.className += ' text-gray-400 bg-gray-100';
+          } else {
+            td.textContent = val.toFixed(1);
+            td.style.backgroundColor = getCellColor(val);
+            td.style.color = getTextColor(val);
+          }
+          tr.appendChild(td);
+        }
+        tbody.appendChild(tr);
+      });
+    }
+
+    function renderRanking() {
+      const list = [];
+      for(let d = 0; d < 7; d++) {
+        for(let h = 0; h < 24; h++) {
+          if(heatmapMatrix[d][h] !== null) {
+            list.push({ day: d, hour: h, value: heatmapMatrix[d][h] });
+          }
+        }
+      }
+      
+      // 降順にソート
+      list.sort((a, b) => b.value - a.value);
+
+      const tbody = document.getElementById('ranking-tbody');
+      tbody.innerHTML = '';
+
+      // 上位20件を表示
+      list.slice(0, 20).forEach((item, index) => {
+        const tr = document.createElement('tr');
+        tr.className = index % 2 === 0 ? 'bg-white' : 'bg-gray-50';
+        
+        tr.innerHTML = `
+          <td class="py-2 px-4 border-b text-center font-bold text-gray-700">${index + 1}</td>
+          <td class="py-2 px-4 border-b text-center">${dayNames[item.day]}</td>
+          <td class="py-2 px-4 border-b text-center">${item.hour}:00 - ${item.hour + 1}:00</td>
+          <td class="py-2 px-4 border-b text-right font-medium text-blue-600">${item.value.toFixed(1)}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function renderChart() {
+      const ctx = document.getElementById('timeseries-chart').getContext('2d');
+      if (chartInstance) {
+        chartInstance.destroy();
+      }
+
+      const labels = Object.keys(dailyChartData).sort();
+      const dataPoints = labels.map(date => {
+        return (dailyChartData[date].sum / dailyChartData[date].count).toFixed(1);
+      });
+
+      chartInstance = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: '日別 平均人流カウント',
+            data: dataPoints,
+            borderColor: '#3b82f6',
+            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+            borderWidth: 2,
+            pointBackgroundColor: '#2563eb',
+            pointRadius: 3,
+            fill: true,
+            tension: 0.2
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              position: 'top',
+            },
+            tooltip: {
+              callbacks: {
+                label: function(context) {
+                  return `平均: ${context.parsed.y}人`;
+                }
+              }
+            }
+          },
+          scales: {
+            x: {
+              grid: { display: false }
+            },
+            y: {
+              beginAtZero: true,
+              grid: { color: '#e5e7eb' }
+            }
+          }
+        }
+      });
+    }
+  </script>
+</body>
+</html>
