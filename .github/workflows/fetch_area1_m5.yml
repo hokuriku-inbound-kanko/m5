@@ -45,7 +45,7 @@ jobs:
 
           # area -> url
           declare -A URLS=(
-            [area1]="https://ifdl.jp/akita/WiScount/log/4827e2e3b9ac.txt"
+            [area1]="https://ifdl.jp/akita/WiScount/log/4827e2e3b2b4.txt"
             [area2]="https://ifdl.jp/akita/WiScount/log/c04e30114f5c.txt"
             [area3]="https://ifdl.jp/akita/WiScount/log/c04e3012ef88.txt"
             [area4]="https://ifdl.jp/akita/WiScount/log/c04e3012f04c.txt"
