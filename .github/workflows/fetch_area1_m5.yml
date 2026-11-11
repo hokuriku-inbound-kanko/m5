@@ -12,7 +12,7 @@ permissions:
 
 concurrency:
   group: kaiteki-m5-update
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   fetch-and-commit:
@@ -53,11 +53,10 @@ jobs:
             [area6]="https://ifdl.jp/akita/WiScount/log/4827e2e3c1fc.txt"
           )
 
-          # gawk の mktime/strftime をUTC基準で扱う（入力をUTCとして解釈）
+          # gawk の mktime/strftime をUTC基準で扱う
           export TZ=UTC
 
-          # 1行（CSV: y,m,d,H,M,S,c）を JST(+9) に変換して "YYYY,MM,DD,HH,MM,SS,count" を出す
-          # 入力はカンマ区切り7列。空白は事前除去推奨。
+          # UTC→JST（+9時間）に変換して正規化
           to_jst_norm() {
             gawk -F',' '
               NF==7 {
@@ -66,7 +65,7 @@ jobs:
                 # 簡易バリデーション
                 if (!(m>=1 && m<=12 && d>=1 && d<=31 && H>=0 && H<=23 && M>=0 && M<=59 && S>=0 && S<=59)) next;
 
-                # mktime はTZ=UTCで解釈 → +9時間 → UTCとして表示（=JST表記になる）
+                # UTCとして解釈して9時間加算
                 t = mktime(sprintf("%04d %02d %02d %02d %02d %02d", y,m,d,H,M,S));
                 if (t<=0) next;
 
@@ -76,8 +75,7 @@ jobs:
             '
           }
 
-          # 既存行を「JSTのまま」正規化して出す（+9しない）
-          # （すでにJST化済みの既存データ用）
+          # 既存のJSTデータを、時刻を変えずに正規化
           keep_norm() {
             gawk -F',' '
               NF==7 {
@@ -92,7 +90,7 @@ jobs:
             local url="$1"
             local out_file="$2"
 
-            # 取得（CR, 空白行除去）
+            # 取得（CR・空白行除去）
             local raw
             raw="$(curl -fsSL "$url" | tr -d '\r' | sed '/^[[:space:]]*$/d')"
 
@@ -103,14 +101,15 @@ jobs:
             if [[ -f "$out_file" ]]; then
               while IFS= read -r line; do
                 [[ "$line" == "$HEADER" || -z "$line" ]] && continue
+
                 # 空白除去
                 line="${line//[[:space:]]/}"
 
                 if [[ "$SHIFT_EXISTING" -eq 1 ]]; then
-                  # 初回のみ：既存もUTCとみなして +9 変換（移行）
+                  # 初回のみ：既存もUTCとみなして+9時間
                   norm="$(printf '%s\n' "$line" | to_jst_norm || true)"
                 else
-                  # 2回目以降：既存はすでにJSTなのでそのまま正規化
+                  # 2回目以降：既存はJSTのまま
                   norm="$(printf '%s\n' "$line" | keep_norm || true)"
                 fi
 
@@ -121,7 +120,7 @@ jobs:
               done < "$out_file"
             fi
 
-            # 新規データ（RAW）は常にUTC想定 → +9変換してマージ
+            # 新規RAWはUTCとして+9時間し、既存データとマージ
             while IFS= read -r line; do
               line="${line//[[:space:]]/}"
               [[ -z "$line" ]] && continue
@@ -134,7 +133,7 @@ jobs:
               fi
             done <<< "$raw"
 
-            # ソートしてヘッダー付きで出力（時系列）
+            # 時系列でソートしてヘッダー付きで出力
             printf '%s\n' "${all[@]}" \
               | sort -t',' -k1,1n -k2,2n -k3,3n -k4,4n -k5,5n -k6,6n -k7,7n \
               | gawk -v h="$HEADER" 'BEGIN{print h} {print}' > "$out_file"
@@ -147,7 +146,7 @@ jobs:
             normalize_merge_write "$url" "$out_file"
           done
 
-          # 初回移行が済んだらフラグを立てる（以後、既存を二重変換しない）
+          # 初回移行完了フラグ
           if [[ "$SHIFT_EXISTING" -eq 1 ]]; then
             touch "$SHIFT_FLAG"
           fi
